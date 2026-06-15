@@ -1,7 +1,7 @@
 'use strict';
 
-// Offline sanity checks for the filtering / dedup / formatting logic.
-// Run with:  node test_logic.js   (no network, no Playwright needed)
+// Offline sanity checks for filtering, dedup, health guardrails, and the
+// notification planner. Run with:  node test_logic.js  (no network / Playwright)
 
 const lib = require('./lib');
 
@@ -11,62 +11,85 @@ function check(name, cond) {
   if (!cond) failures++;
 }
 
-// Anchor: confirms day-of-week math is correct.
-check("Jul 15 2026 is Wed", lib.dayName('2026-07-15') === 'Wed');
-check("Jul 18 2026 is Sat (weekend)", lib.dayName('2026-07-18') === 'Sat' && lib.isWeekend('2026-07-18'));
-check("Aug 12 2026 is Wed (midweek)", lib.dayName('2026-08-12') === 'Wed' && !lib.isWeekend('2026-08-12'));
+// ---- date / availability --------------------------------------------------
+check('Jul 15 2026 is Wed', lib.dayName('2026-07-15') === 'Wed');
+check('Jul 18 2026 is Sat (weekend)', lib.dayName('2026-07-18') === 'Sat' && lib.isWeekend('2026-07-18'));
+check('Aug 12 2026 is Wed (midweek)', lib.dayName('2026-08-12') === 'Wed' && !lib.isWeekend('2026-08-12'));
 
 const mock = {
-  '2026-06-14': { '406': { remaining: 3, total: 79 } },                 // before window -> excluded
-  '2026-07-04': { '406': { remaining: 5, total: 100 } },               // before Jul 6 -> excluded
-  '2026-07-11': { '406': { remaining: 2, total: 100 }, '166': { remaining: 0 } }, // Sat, hit (weekend)
-  '2026-07-15': { '406': { remaining: 1, total: 100 } },               // only 1 -> below min, excluded
-  '2026-07-18': { '406': { remaining: 6, total: 100 } },               // Sat, hit (weekend, ideal)
-  '2026-07-22': { '406': { remaining: 8, total: 100 } },               // Ireland -> excluded
-  '2026-07-25': { '406': { remaining: 4, total: 100 } },               // Ireland -> excluded
-  '2026-08-12': { '406': { remaining: 2, total: 100 } },               // Wed, hit (midweek)
-  '2026-10-31': { '406': { remaining: 4, total: 100 } },               // Sat, hit (last day, ideal)
-  '2026-11-01': { '406': { remaining: 9, total: 100 } },               // after window -> excluded
-  '2026-09-09': { '166': { remaining: 5 } },                           // overnight only -> excluded
+  '2026-06-14': { '406': { remaining: 3, total: 79 } },                 // before window
+  '2026-07-04': { '406': { remaining: 5, total: 100 } },               // before Jul 6
+  '2026-07-11': { '406': { remaining: 2, total: 100 }, '166': { remaining: 0 } }, // Sat hit
+  '2026-07-15': { '406': { remaining: 1, total: 100 } },               // below min
+  '2026-07-18': { '406': { remaining: 6, total: 100 } },               // Sat hit (ideal)
+  '2026-07-22': { '406': { remaining: 8, total: 100 } },               // Ireland
+  '2026-07-25': { '406': { remaining: 4, total: 100 } },               // Ireland
+  '2026-08-12': { '406': { remaining: 2, total: 100 } },               // Wed hit
+  '2026-10-31': { '406': { remaining: 4, total: 100 } },               // Sat hit (ideal)
+  '2026-11-01': { '406': { remaining: 9, total: 100 } },               // after window
+  '2026-09-09': { '166': { remaining: 5 } },                           // overnight only
 };
-
 const hits = lib.computeHits(mock);
-const hitDates = hits.map((h) => h.date);
+check('4 hits, correct & sorted',
+  hits.map((h) => h.date).join(',') === '2026-07-11,2026-07-18,2026-08-12,2026-10-31');
+check('Ireland + out-of-window + below-min + overnight-only all excluded', hits.length === 4);
+check('Jul 18 flagged ideal', hits.find((h) => h.date === '2026-07-18').ideal === true);
+check('Aug 12 not ideal & midweek',
+  hits.find((h) => h.date === '2026-08-12').ideal === false &&
+  hits.find((h) => h.date === '2026-08-12').weekend === false);
+check('message escapes & in link', lib.formatMessage(hits).includes('&amp;date=2026-07-11'));
 
-check("4 hits total", hits.length === 4);
-check("hits are exactly the right dates, sorted",
-  hitDates.join(',') === '2026-07-11,2026-07-18,2026-08-12,2026-10-31');
-check("Ireland dates excluded", !hitDates.includes('2026-07-22') && !hitDates.includes('2026-07-25'));
-check("before-window excluded", !hitDates.includes('2026-07-04') && !hitDates.includes('2026-06-14'));
-check("after-window excluded", !hitDates.includes('2026-11-01'));
-check("below-min excluded", !hitDates.includes('2026-07-15'));
-check("overnight-only excluded", !hitDates.includes('2026-09-09'));
-check("Jul 18 flagged ideal (>=4)", hits.find((h) => h.date === '2026-07-18').ideal === true);
-check("Aug 12 not ideal (2 spots)", hits.find((h) => h.date === '2026-08-12').ideal === false);
-check("Aug 12 flagged midweek", hits.find((h) => h.date === '2026-08-12').weekend === false);
+// ---- health (canary) ------------------------------------------------------
+const julNow = new Date('2026-07-15T12:00:00Z'); // in season
+const janNow = new Date('2026-01-15T12:00:00Z'); // off season
+const goodCanary = { '2026-07-14': { '406': { remaining: 3 }, '166': { remaining: 1 } }, '2026-07-15': { '406': { remaining: 0 } } };
+const noDayUseCanary = { '2026-07-14': { '166': { remaining: 1 } } };
 
-// Dedup behavior across runs.
-const run1 = lib.diffNewlyOpen(hits, []);
-check("first run alerts on all 4", run1.length === 4);
+check('health ok when canary has day-use data',
+  lib.assessHealth({ canaryPayload: goodCanary, canaryFailed: false, now: julNow }) === 'ok');
+check('health blocked when fetch failed',
+  lib.assessHealth({ canaryPayload: null, canaryFailed: true, now: julNow }) === 'blocked');
+check('health empty when canary empty in-season',
+  lib.assessHealth({ canaryPayload: {}, canaryFailed: false, now: julNow }) === 'empty');
+check('health ok when canary empty off-season',
+  lib.assessHealth({ canaryPayload: {}, canaryFailed: false, now: janNow }) === 'ok');
+check('health structure when day-use division gone',
+  lib.assessHealth({ canaryPayload: noDayUseCanary, canaryFailed: false, now: julNow }) === 'structure');
 
-const afterRun1 = hits.map((h) => h.date);
-const run2 = lib.diffNewlyOpen(hits, afterRun1);
-check("second run with same availability alerts on nothing", run2.length === 0);
+// ---- notification planner -------------------------------------------------
+const detail = { canaryCount: 16 };
+const base = { openDates: [], lastChecked: null, health: { status: 'ok', since: null, alerted: false }, lastHeartbeat: '2026-07-15' };
 
-// A date closes (07-18 booked) and a new one opens (09-05).
-const mock3 = Object.assign({}, mock);
-delete mock3['2026-07-18'];
-mock3['2026-09-05'] = { '406': { remaining: 3, total: 100 } }; // Sat
-const hits3 = lib.computeHits(mock3);
-const run3 = lib.diffNewlyOpen(hits3, afterRun1);
-check("third run alerts only on the newly reopened date", run3.length === 1 && run3[0].date === '2026-09-05');
+// First-ever heartbeat (lastHeartbeat null) on a healthy empty run.
+let p = lib.planNotifications({ prevState: { ...base, lastHeartbeat: null }, healthStatus: 'ok', hits: [], detail, now: julNow });
+check('healthy + no heartbeat-yet => sends heartbeat', p.messages.some((m) => m.type === 'heartbeat'));
+check('heartbeat sets lastHeartbeat', p.nextState.lastHeartbeat === '2026-07-15');
 
-// Message formatting smoke test.
-const msg = lib.formatMessage(run1);
-check("message mentions Whitney", /Mt\. Whitney/.test(msg));
-check("message has a booking link with &amp; escaped", msg.includes('&amp;date=2026-07-11'));
-check("message has no raw unescaped & in href", !/href="[^"]*[^p];date/.test(msg)); // sanity
+// Heartbeat suppressed when recent.
+p = lib.planNotifications({ prevState: base, healthStatus: 'ok', hits: [], detail, now: julNow });
+check('healthy + recent heartbeat => silent', p.messages.length === 0);
 
-console.log('\n--- sample message ---\n' + msg + '\n----------------------');
+// New availability fires an alert.
+p = lib.planNotifications({ prevState: base, healthStatus: 'ok', hits, detail, now: julNow });
+check('new openings => availability alert', p.messages.some((m) => m.type === 'availability'));
+check('nextState records open dates', p.nextState.openDates.length === 4);
+
+// Same availability next run => no repeat.
+p = lib.planNotifications({ prevState: { ...base, openDates: hits.map((h) => h.date) }, healthStatus: 'ok', hits, detail, now: julNow });
+check('repeat availability => no spam', !p.messages.some((m) => m.type === 'availability'));
+
+// Health problem alerts once, then dedups.
+p = lib.planNotifications({ prevState: base, healthStatus: 'blocked', hits: [], detail, now: julNow });
+check('first health problem => one health alert', p.messages.length === 1 && p.messages[0].type === 'health');
+check('health problem preserves openDates baseline', Array.isArray(p.nextState.openDates));
+const afterProblem = p.nextState;
+p = lib.planNotifications({ prevState: afterProblem, healthStatus: 'blocked', hits: [], detail, now: julNow });
+check('repeat health problem => deduped (silent)', p.messages.length === 0);
+
+// Recovery fires once when health returns to ok.
+p = lib.planNotifications({ prevState: { ...afterProblem, lastHeartbeat: '2026-07-15' }, healthStatus: 'ok', hits: [], detail, now: julNow });
+check('recovery => recovery alert', p.messages.some((m) => m.type === 'recovery'));
+check('recovery clears health to ok', p.nextState.health.status === 'ok' && p.nextState.health.alerted === false);
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : `\n${failures} TEST(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

@@ -95,6 +95,23 @@ are often gone within minutes.
 
 ---
 
+## Health alerts & guardrails
+
+The watcher monitors *itself* so it can't fail silently:
+
+- **Site blocked / down:** if recreation.gov can't be reached, or returns no data
+  for the current month during the season (a sign the cloud server is being
+  blocked), you get a 🚨 Telegram alert — and a ✅ "recovered" message once it's
+  working again.
+- **Permit layout changed:** every run checks that the day-use section (division
+  `406`) still exists. If recreation.gov restructures the permit, you get a 🚨
+  alert so it can be fixed, instead of silently finding nothing.
+- **No alert spam:** each problem alerts once, then stays quiet until it changes
+  or recovers (tracked in `state.json`).
+- **Weekly heartbeat:** every 7 days you get a 🟢 "still healthy" check-in that
+  also reports how many dates the current month is showing — so if the heartbeats
+  ever stop, you know the workflow itself was paused and can re-enable it.
+
 ## Changing the settings
 
 Everything is at the top of **`lib.js`**:
