@@ -1,0 +1,15 @@
+{
+  "name": "whitney-day-use-watcher",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Watches recreation.gov for Mt. Whitney day-use permit openings and alerts via Telegram.",
+  "type": "commonjs",
+  "scripts": {
+    "check": "node check.js",
+    "test": "node test_logic.js",
+    "test:alert": "node check.js --test"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}
