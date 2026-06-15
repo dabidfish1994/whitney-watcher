@@ -2,9 +2,9 @@ name: Mt Whitney Day-Use Watcher
 
 on:
   schedule:
-    # Every 10 minutes. GitHub may delay scheduled runs under load, so the real
-    # cadence is often 10-20 min. Keep the repo PUBLIC for unlimited free minutes.
-    - cron: '*/10 * * * *'
+    # Every 30 minutes. GitHub may delay scheduled runs under load, so the real
+    # cadence can be a bit longer. Keep the repo PUBLIC for unlimited free minutes.
+    - cron: '*/30 * * * *'
   workflow_dispatch:
     inputs:
       test:
