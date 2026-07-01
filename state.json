@@ -2,11 +2,11 @@
   "openDates": [
     "2026-07-07"
   ],
-  "lastChecked": "2026-06-30",
+  "lastChecked": "2026-07-01",
   "health": {
-    "status": "ok",
-    "since": null,
-    "alerted": false
+    "status": "empty",
+    "since": "2026-07-01",
+    "alerted": true
   },
   "lastHeartbeat": "2026-06-29"
 }
