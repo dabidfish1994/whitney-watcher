@@ -1,12 +1,10 @@
 {
-  "openDates": [
-    "2026-07-07"
-  ],
+  "openDates": [],
   "lastChecked": "2026-07-01",
   "health": {
-    "status": "empty",
+    "status": "ok",
     "since": "2026-07-01",
-    "alerted": true
+    "alerted": false
   },
   "lastHeartbeat": "2026-06-29"
 }
