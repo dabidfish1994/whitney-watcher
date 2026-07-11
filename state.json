@@ -1,6 +1,8 @@
 {
-  "openDates": [],
-  "lastChecked": "2026-07-10",
+  "openDates": [
+    "2026-10-26"
+  ],
+  "lastChecked": "2026-07-11",
   "health": {
     "status": "ok",
     "since": "2026-07-01",
